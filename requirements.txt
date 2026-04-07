@@ -2,4 +2,4 @@ streamlit
 librosa
 numpy
 scipy
-matplotlib
+SpeechRecognition
