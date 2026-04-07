@@ -6,76 +6,49 @@ https://audio-pause-and-repetition-detection.streamlit.app/
 
 ---
 
-## 🧪 Sample Audio
-
-A sample audio file is included in the repository under the data folder.  
-Kindly download the file and upload it in the website.  
-
-
-
----
-
 ## 📌 Overview
 This project is a real-time speech analysis system that detects:
-- ⏸️ Pause Segments (silent regions in speech)
-- 🔁 Stuttered Speech Patterns (e.g., *ba-ba-ball*, *gi-gi-give*)
+- ⏸️ **Pause Segments** (silent regions in speech)
+- 🔁 **Stuttered Speech Patterns** (e.g., *ba-ba-ball*, *gi-gi-give*)
 
-The system combines signal processing and phoneme-based reconstruction to analyze speech and generate structured outputs.
-
----
-
-## 🎯 Objective
-To design an explainable pipeline that:
-- Detects pauses in speech
-- Identifies stuttering patterns
-- Outputs meaningful and human-readable results
+The system uses audio signal processing and phoneme-based reconstruction to analyze speech and generate structured outputs.
 
 ---
 
-## ⚙️ Tech Stack
-- **Python**
-- **Streamlit** – Web UI  
-- **Librosa** – Audio processing  
-- **NumPy** – Numerical operations  
-- **SciPy** – Similarity computation  
-- **SpeechRecognition** – Speech-to-text  
+## ✨ Key Features
+- 🎧 Upload your own audio (.wav)
+- 🎯 Built-in **sample audio (no download required)**
+- ⏸️ Accurate pause detection (≥ 2 seconds)
+- 🔁 Detection of stuttered/repeated speech patterns
+- 🧠 Phoneme-based reconstruction of stuttered words
+- ⚡ Clean and interactive Streamlit UI
 
 ---
 
 ## 🧠 Approach
 
 ### 1️⃣ Audio Preprocessing
-- Normalize audio signal
-- Apply pre-emphasis to enhance speech features
+- Normalize audio signal for consistency  
+- Improve clarity using basic preprocessing  
 
 ---
 
 ### 2️⃣ Pause Detection
-- Uses `librosa.effects.split()` to detect speech regions
-- Pauses are calculated as gaps between speech segments
-- Only pauses **≥ 2 seconds** are considered
-
-This avoids misclassifying low-energy speech as silence.
+- Uses `librosa.effects.split()` to detect speech regions  
+- Pauses calculated as gaps between speech  
+- Only pauses ≥ 2 seconds are considered  
 
 ---
 
 ### 3️⃣ Repetition Detection
-
-#### Feature Extraction
-- Extract MFCC (Mel-Frequency Cepstral Coefficients)
-
-#### Segment Comparison
-- Split audio into segments
-- Compare consecutive segments using cosine similarity
-
-#### Detection
-- High similarity → repeated speech pattern
+- Extract MFCC (Mel-Frequency Cepstral Coefficients)  
+- Segment audio into small chunks  
+- Compare consecutive segments using cosine similarity  
+- High similarity → repeated speech  
 
 ---
 
-### 4️⃣ Phoneme-Based Stutter Reconstruction
-- Extract repeated audio segments
-- Estimate phoneme using spectral features
-- Combine with recognized words
-
-Example:
+### 4️⃣ Stutter Reconstruction
+- Estimate phoneme from repeated audio segments  
+- Combine with recognized words  
+- Output patterns like:
