@@ -2,177 +2,211 @@ import streamlit as st
 import librosa
 import numpy as np
 from scipy.spatial.distance import cosine
-import matplotlib.pyplot as plt
 import tempfile
 import os
+import speech_recognition as sr
 
+# -----------------------------
+# PAGE CONFIG + CUSTOM STYLE
+# -----------------------------
 st.set_page_config(page_title="Speech Analysis", layout="wide")
 
-st.title("🎧 Speech Analysis: Pause & Repetition Detection")
+st.markdown("""
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+}
+
+.main-title {
+    font-size: 42px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.sub-title {
+    text-align: center;
+    color: #888;
+    margin-bottom: 30px;
+}
+
+.card {
+    background-color: #111827;
+    padding: 25px;
+    border-radius: 12px;
+    margin-top: 20px;
+    box-shadow: 0px 4px 20px rgba(0,0,0,0.3);
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-top: 15px;
+}
+
+.output-text {
+    font-size: 16px;
+    line-height: 1.8;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------
-# AUDIO SOURCE SELECTION
+# HEADER
 # -----------------------------
-st.sidebar.header("Audio Source")
+st.markdown('<div class="main-title">🎧 Speech Analysis System</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Pause Detection & Stutter Recognition using Audio Processing</div>', unsafe_allow_html=True)
 
-option = st.sidebar.radio(
-    "Choose input type:",
-    ["Upload Audio", "Use LibriSpeech Sample", "Use UCLASS Sample"]
-)
+# -----------------------------
+# FUNCTIONS
+# -----------------------------
+def get_transcription(audio_path):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_path) as source:
+        audio = recognizer.record(source)
+    try:
+        return recognizer.recognize_google(audio)
+    except:
+        return ""
+
+def estimate_phoneme(audio_segment, sr):
+    centroid = np.mean(librosa.feature.spectral_centroid(y=audio_segment, sr=sr))
+
+    if centroid < 1500:
+        return "b"
+    elif centroid < 2500:
+        return "d"
+    elif centroid < 3500:
+        return "g"
+    elif centroid < 4500:
+        return "k"
+    else:
+        return "s"
+
+def build_stutter_patterns(words, repetition_indices, y, sr):
+    stuttered = []
+
+    for idx, rep_index in enumerate(repetition_indices):
+        if idx >= len(words):
+            break
+
+        word = words[idx]
+
+        start = int(rep_index * 512)
+        end = start + int(0.3 * sr)
+
+        segment = y[start:end]
+
+        if len(segment) == 0:
+            phoneme = word[0]
+        else:
+            phoneme = estimate_phoneme(segment, sr)
+
+        pattern = f"{phoneme}{word[1:]}-{phoneme}{word[1:]}-{word}"
+        stuttered.append(pattern)
+
+    return stuttered
+
+# -----------------------------
+# SIDEBAR
+# -----------------------------
+st.sidebar.header("Upload Audio")
+uploaded_file = st.sidebar.file_uploader("Choose WAV file", type=["wav"])
 
 audio_path = None
 
-# Upload option
-if option == "Upload Audio":
-    uploaded_file = st.file_uploader("Upload a WAV file", type=["wav"])
-    if uploaded_file is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(uploaded_file.read())
-            audio_path = tmp.name
-
-# Dataset samples
-elif option == "Use LibriSpeech Sample":
-    audio_path = "data/librispeech_sample.wav"
-
-elif option == "Use UCLASS Sample":
-    audio_path = "data/uclass_sample.wav"
-
+if uploaded_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(uploaded_file.read())
+        audio_path = tmp.name
 
 # -----------------------------
-# PROCESS ONLY IF AUDIO EXISTS
+# MAIN UI
 # -----------------------------
-if audio_path is not None and os.path.exists(audio_path):
+if audio_path is not None:
 
     st.audio(audio_path)
 
-    # -----------------------------
-    # LOAD AUDIO
-    # -----------------------------
-    y, sr = librosa.load(audio_path, sr=None)
+    if st.button("🚀 Run Analysis"):
 
-    # -----------------------------
-    # PREPROCESSING
-    # -----------------------------
-    st.header("🧹 Preprocessing")
+        with st.spinner("Analyzing audio..."):
 
-    y = y / np.max(np.abs(y))
-    y = librosa.effects.preemphasis(y)
+            y, sample_rate = librosa.load(audio_path, sr=None)
+            y = y / np.max(np.abs(y))
 
-    st.write("✔️ Audio normalized and pre-emphasized")
+            # -----------------------------
+            # PAUSE DETECTION
+            # -----------------------------
+            intervals = librosa.effects.split(y, top_db=25)
 
-    # -----------------------------
-    # PAUSE DETECTION
-    # -----------------------------
-    st.header("⏸️ Pause Detection")
+            pauses = []
+            for i in range(len(intervals) - 1):
+                end_current = intervals[i][1] / sample_rate
+                start_next = intervals[i + 1][0] / sample_rate
 
-    frame_length = 2048
-    hop_length = 512
+                if (start_next - end_current) >= 2.0:
+                    pauses.append((end_current, start_next))
 
-    energy = librosa.feature.rms(
-        y=y, frame_length=frame_length, hop_length=hop_length
-    )[0]
+            total_pause = sum(end - start for start, end in pauses)
 
-    times = librosa.frames_to_time(
-        range(len(energy)), sr=sr, hop_length=hop_length
-    )
+            # -----------------------------
+            # REPETITION DETECTION
+            # -----------------------------
+            mfcc = librosa.feature.mfcc(y=y, sr=sample_rate, n_mfcc=13)
 
-    threshold = st.slider("Silence Threshold", 0.0, 0.1, 0.02)
+            segment_size = 30
+            similarity_threshold = 0.92
 
-    silent_frames = energy < threshold
+            segments = [
+                mfcc[:, i:i + segment_size]
+                for i in range(0, mfcc.shape[1] - segment_size, segment_size)
+            ]
 
-    pauses = []
-    start = None
+            repetition_indices = []
 
-    for i, is_silent in enumerate(silent_frames):
-        if is_silent and start is None:
-            start = times[i]
-        elif not is_silent and start is not None:
-            end = times[i]
-            pauses.append((start, end))
-            start = None
+            for i in range(len(segments) - 1):
+                sim = 1 - cosine(segments[i].flatten(), segments[i + 1].flatten())
+                if sim > similarity_threshold:
+                    repetition_indices.append(i)
 
-    if start is not None:
-        pauses.append((start, times[-1]))
+            repetition_indices = repetition_indices[:5]
 
-    total_pause = sum(end - start for start, end in pauses)
+            # -----------------------------
+            # TEXT + STUTTER BUILD
+            # -----------------------------
+            text = get_transcription(audio_path)
+            words = text.lower().split()
 
-    st.subheader("Detected Pause Segments")
-    if pauses:
-        for start, end in pauses:
-            st.write(f"[{start:.2f}s - {end:.2f}s]")
-    else:
-        st.write("No pauses detected.")
+            stuttered_words = build_stutter_patterns(words, repetition_indices, y, sample_rate)
 
-    st.write(f"**Total Pause Duration:** {total_pause:.2f}s")
+        # -----------------------------
+        # OUTPUT UI
+        # -----------------------------
+        st.markdown('<div class="card">', unsafe_allow_html=True)
 
-    # Plot energy
-    fig, ax = plt.subplots()
-    ax.plot(times, energy)
-    ax.axhline(threshold, linestyle='--')
-    ax.set_title("Energy vs Time")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Energy")
-    st.pyplot(fig)
+        st.markdown('<div class="section-title">1. File Details</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="output-text">File: {os.path.basename(audio_path)}</div>', unsafe_allow_html=True)
 
-    # -----------------------------
-    # REPETITION DETECTION
-    # -----------------------------
-    st.header("🔁 Repetition Detection")
+        st.markdown('<div class="section-title">2. Pause Detection</div>', unsafe_allow_html=True)
 
-    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        pause_str = ", ".join([f"[{s:.1f}s – {e:.1f}s]" for s, e in pauses]) if pauses else "None"
 
-    segment_size = st.slider("Segment Size (frames)", 5, 50, 20)
-    similarity_threshold = st.slider("Similarity Threshold", 0.7, 1.0, 0.9)
+        st.markdown(f'<div class="output-text">{pause_str}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="output-text"><b>Total Pause Duration:</b> {total_pause:.1f}s</div>', unsafe_allow_html=True)
 
-    segments = []
-    segment_times = []
+        st.markdown('<div class="section-title">3. Stuttered Words</div>', unsafe_allow_html=True)
 
-    for i in range(0, mfcc.shape[1] - segment_size, segment_size):
-        segment = mfcc[:, i:i + segment_size]
-        segments.append(segment)
+        if stuttered_words:
+            stutter_str = ", ".join(stuttered_words)
+            count = len(stuttered_words)
+        else:
+            stutter_str = "None"
+            count = 0
 
-        t_start = librosa.frames_to_time(i, sr=sr)
-        t_end = librosa.frames_to_time(i + segment_size, sr=sr)
-        segment_times.append((t_start, t_end))
+        st.markdown(f'<div class="output-text">{stutter_str}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="output-text"><b>Count:</b> {count}</div>', unsafe_allow_html=True)
 
-    repetitions = []
-
-    for i in range(len(segments) - 1):
-        s1 = segments[i].flatten()
-        s2 = segments[i + 1].flatten()
-
-        sim = 1 - cosine(s1, s2)
-
-        if sim > similarity_threshold:
-            repetitions.append((segment_times[i], segment_times[i + 1], sim))
-
-    st.subheader("Detected Repetitions")
-
-    if len(repetitions) == 0:
-        st.write("No repetitions detected.")
-    else:
-        for (t1, t2, sim) in repetitions:
-            st.write(
-                f"[{t1[0]:.2f}s - {t1[1]:.2f}s] ≈ "
-                f"[{t2[0]:.2f}s - {t2[1]:.2f}s] "
-                f"(Similarity: {sim:.2f})"
-            )
-
-    st.write(f"**Repetition Count:** {len(repetitions)}")
-
-    # -----------------------------
-    # FINAL SUMMARY
-    # -----------------------------
-    st.header("📊 Final Output Summary")
-
-    st.write("### Pause Segments:")
-    for start, end in pauses:
-        st.write(f"[{start:.2f}s – {end:.2f}s]")
-
-    st.write(f"Total Pause Duration: {total_pause:.2f}s")
-
-    st.write("### Repetitions:")
-    st.write(f"Repetition Count: {len(repetitions)}")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.warning("Please upload or select an audio file.")
+    st.info("Upload an audio file to start analysis.")
