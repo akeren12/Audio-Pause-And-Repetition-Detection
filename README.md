@@ -6,6 +6,14 @@ https://audio-pause-and-repetition-detection.streamlit.app/
 
 ---
 
+## 🧪 Sample Audio
+
+A sample audio file is included in the repository:
+data/M_0030_16y4m_1.wav
+
+
+---
+
 ## 📌 Overview
 This project is a real-time speech analysis system that detects:
 - ⏸️ Pause Segments (silent regions in speech)
