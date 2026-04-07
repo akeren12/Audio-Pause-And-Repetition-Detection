@@ -8,7 +8,8 @@ https://audio-pause-and-repetition-detection.streamlit.app/
 
 ## 🧪 Sample Audio
 
-A sample audio file is included in the repository:
+A sample audio file is included in the repository under the data folder.
+Kindly download the file and upload it in the website.
 data/M_0030_16y4m_1.wav
 
 
