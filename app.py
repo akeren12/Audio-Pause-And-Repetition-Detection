@@ -5,9 +5,10 @@ from scipy.spatial.distance import cosine
 import tempfile
 import os
 import speech_recognition as sr
+import requests
 
 # -----------------------------
-# PAGE CONFIG + CUSTOM STYLE
+# PAGE CONFIG + STYLE
 # -----------------------------
 st.set_page_config(page_title="Speech Analysis", layout="wide")
 
@@ -16,37 +17,26 @@ st.markdown("""
 body {
     font-family: 'Segoe UI', sans-serif;
 }
-
 .main-title {
     font-size: 42px;
     font-weight: 700;
     text-align: center;
-    margin-bottom: 10px;
 }
-
 .sub-title {
     text-align: center;
     color: #888;
     margin-bottom: 30px;
 }
-
 .card {
     background-color: #111827;
     padding: 25px;
     border-radius: 12px;
     margin-top: 20px;
-    box-shadow: 0px 4px 20px rgba(0,0,0,0.3);
 }
-
 .section-title {
     font-size: 20px;
     font-weight: 600;
     margin-top: 15px;
-}
-
-.output-text {
-    font-size: 16px;
-    line-height: 1.8;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -55,7 +45,7 @@ body {
 # HEADER
 # -----------------------------
 st.markdown('<div class="main-title">🎧 Speech Analysis System</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Pause Detection & Stutter Recognition using Audio Processing</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Pause Detection & Stutter Recognition</div>', unsafe_allow_html=True)
 
 # -----------------------------
 # FUNCTIONS
@@ -108,20 +98,50 @@ def build_stutter_patterns(words, repetition_indices, y, sr):
     return stuttered
 
 # -----------------------------
-# SIDEBAR
+# SIDEBAR INPUT
 # -----------------------------
-st.sidebar.header("Upload Audio")
-uploaded_file = st.sidebar.file_uploader("Choose WAV file", type=["wav"])
+st.sidebar.header("Audio Source")
+
+option = st.sidebar.radio(
+    "Choose input:",
+    ["Upload Audio", "Use Sample Audio"]
+)
 
 audio_path = None
 
-if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        tmp.write(uploaded_file.read())
-        audio_path = tmp.name
+# -----------------------------
+# OPTION 1: UPLOAD
+# -----------------------------
+if option == "Upload Audio":
+    uploaded_file = st.sidebar.file_uploader("Upload WAV file", type=["wav"])
+
+    if uploaded_file is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(uploaded_file.read())
+            audio_path = tmp.name
 
 # -----------------------------
-# MAIN UI
+# OPTION 2: SAMPLE FROM GITHUB
+# -----------------------------
+elif option == "Use Sample Audio":
+
+    if st.sidebar.button("Load Sample Audio"):
+
+        url = "https://raw.githubusercontent.com/akeren12/Audio-Pause-And-Repetition-Detection/main/data/M_0030_16y4m_1.wav"
+
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                tmp.write(response.content)
+                audio_path = tmp.name
+
+            st.success("Sample audio loaded successfully!")
+        else:
+            st.error("Failed to load sample audio.")
+
+# -----------------------------
+# MAIN PROCESS
 # -----------------------------
 if audio_path is not None:
 
@@ -131,28 +151,28 @@ if audio_path is not None:
 
         with st.spinner("Analyzing audio..."):
 
-            y, sample_rate = librosa.load(audio_path, sr=None)
+            y, sr_rate = librosa.load(audio_path, sr=None)
             y = y / np.max(np.abs(y))
 
             # -----------------------------
-            # PAUSE DETECTION
+            # PAUSE DETECTION (>= 2 sec)
             # -----------------------------
             intervals = librosa.effects.split(y, top_db=25)
 
             pauses = []
             for i in range(len(intervals) - 1):
-                end_current = intervals[i][1] / sample_rate
-                start_next = intervals[i + 1][0] / sample_rate
+                end_current = intervals[i][1] / sr_rate
+                start_next = intervals[i + 1][0] / sr_rate
 
                 if (start_next - end_current) >= 2.0:
                     pauses.append((end_current, start_next))
 
-            total_pause = sum(end - start for start, end in pauses)
+            total_pause = sum(e - s for s, e in pauses)
 
             # -----------------------------
             # REPETITION DETECTION
             # -----------------------------
-            mfcc = librosa.feature.mfcc(y=y, sr=sample_rate, n_mfcc=13)
+            mfcc = librosa.feature.mfcc(y=y, sr=sr_rate, n_mfcc=13)
 
             segment_size = 30
             similarity_threshold = 0.92
@@ -177,36 +197,36 @@ if audio_path is not None:
             text = get_transcription(audio_path)
             words = text.lower().split()
 
-            stuttered_words = build_stutter_patterns(words, repetition_indices, y, sample_rate)
+            stuttered_words = build_stutter_patterns(words, repetition_indices, y, sr_rate)
 
         # -----------------------------
         # OUTPUT UI
         # -----------------------------
         st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        st.markdown('<div class="section-title">1. File Details</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="output-text">File: {os.path.basename(audio_path)}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📄 File</div>', unsafe_allow_html=True)
+        st.write(os.path.basename(audio_path))
 
-        st.markdown('<div class="section-title">2. Pause Detection</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">⏸️ Pause Segments</div>', unsafe_allow_html=True)
 
-        pause_str = ", ".join([f"[{s:.1f}s – {e:.1f}s]" for s, e in pauses]) if pauses else "None"
+        if pauses:
+            for s, e in pauses:
+                st.write(f"[{s:.1f}s – {e:.1f}s]")
+        else:
+            st.write("None")
 
-        st.markdown(f'<div class="output-text">{pause_str}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="output-text"><b>Total Pause Duration:</b> {total_pause:.1f}s</div>', unsafe_allow_html=True)
+        st.write(f"**Total Pause Duration:** {total_pause:.1f}s")
 
-        st.markdown('<div class="section-title">3. Stuttered Words</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🔁 Stuttered Words</div>', unsafe_allow_html=True)
 
         if stuttered_words:
-            stutter_str = ", ".join(stuttered_words)
-            count = len(stuttered_words)
+            st.write(", ".join(stuttered_words))
+            st.write(f"**Count:** {len(stuttered_words)}")
         else:
-            stutter_str = "None"
-            count = 0
-
-        st.markdown(f'<div class="output-text">{stutter_str}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="output-text"><b>Count:</b> {count}</div>', unsafe_allow_html=True)
+            st.write("None")
+            st.write("Count: 0")
 
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.info("Upload an audio file to start analysis.")
+    st.info("Upload or load sample audio to begin.")
