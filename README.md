@@ -10,9 +10,7 @@ https://audio-pause-and-repetition-detection.streamlit.app/
 
 A sample audio file is included in the repository under the data folder.  
 Kindly download the file and upload it in the website.  
-<audio controls>
-  <source src="data/M_0030_16y4m_1.wav" type="audio/wav">
-</audio>
+
 
 
 ---
